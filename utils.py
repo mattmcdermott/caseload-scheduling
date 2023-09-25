@@ -11,3 +11,7 @@ def day_and_time_to_mins(day, time):
 
 def is_within_window(test_window, other_window):
     return test_window[0] >= other_window[0] and test_window[1] <= other_window[1]
+
+
+def is_overlapping(test_window, other_window):
+    return test_window[0] <= other_window[1] and test_window[1] >= other_window[0]

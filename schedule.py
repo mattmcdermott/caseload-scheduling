@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pyomo.environ as pe
 import pyomo.gdp as pyogdp
+from tqdm import tqdm
 
 from constraints import *
 from objective import *
@@ -43,13 +44,13 @@ class Scheduler:
 
         model.CASES = pe.Set(initialize=self.df_cases["Name"].tolist())
         model.SESSIONS = pe.Set(initialize=list(self.sessions.keys()))
-        model.TASKS = pe.Set(initialize=model.CASES * model.SESSIONS, dimen=2)
-        model.IS_AVAILABLE = pe.Param(
-            model.TASKS,
-            initialize=self._generate_availabilities(model.TASKS),
-            within=pe.Binary,
-        )
 
+        tasks = []
+        for case, session in model.CASES * model.SESSIONS:
+            if self._check_if_available(case, session):
+                tasks.append((case, session))
+
+        model.TASKS = pe.Set(initialize=tasks, dimen=2)
         model.CASE_DURATION = pe.Param(
             model.CASES, initialize=self._generate_case_durations()
         )
@@ -78,11 +79,14 @@ class Scheduler:
         model.CASE_START = pe.Constraint(model.TASKS, rule=case_start_time)
         model.CASE_END_TIME = pe.Constraint(model.TASKS, rule=case_end_time)
         model.SESSION_ASSIGNMENT = pe.Constraint(model.CASES, rule=session_assignment)
-        model.VALID_WITH_SCHEDULE = pe.Constraint(model.TASKS, rule=valid_with_schedule)
+
+        print("Starting disjunction constraints...")
 
         model.DISJUNCTIONS_RULE = pyogdp.Disjunction(
             model.DISJUNCTIONS, rule=no_case_overlap
         )
+        print("Finished disjunction constraints.")
+
         model.SESSION_UTIL = pe.Constraint(model.SESSIONS, rule=session_util)
 
         pe.TransformationFactory("gdp.bigm").apply_to(model)
@@ -153,7 +157,6 @@ class Scheduler:
                 solver_results["Problem"].__getitem__(0)["Number of constraints"]
             )
         )
-        plot_calendar(self.df_times)
 
     def plot_results(self):
         df = self.df_times
@@ -277,8 +280,8 @@ class Scheduler:
         """ """
         for window in self.student_availabilities[case]:
             if is_within_window(window, self.sessions[session]):
-                return 1
-        return 0
+                return True
+        return False
 
     def _generate_disjunctions(self, tasks):
         """
@@ -286,18 +289,32 @@ class Scheduler:
             disjunctions (list): list of tuples containing disjunctions
         """
         disjunctions = []
-        for t1, t2 in product(tasks, tasks):
-            if t1 != t2:
+        for t1, t2 in tqdm(product(tasks, tasks)):
+            if t1[0] != t2[0] and is_overlapping(
+                self.sessions[t1[1]], self.sessions[t2[1]]
+            ):
                 disjunctions.append((t1, t2))
+
+        print(f"Made {len(disjunctions)} disjunctions!")
 
         return disjunctions
 
+    def _generate_student_disjunctions(self, tasks):
+        disjunctions = []
+        for t1, t2 in tqdm(product(tasks, tasks)):
+            if t1[0] != t2[0] and is_overlapping(
+                self.sessions[t1[1]], self.sessions[t2[1]]
+            ):
+                disjunctions.append((t1, t2))
+
+        print(f"Made {len(disjunctions)} disjunctions!")
+
 
 if __name__ == "__main__":
-    case_path = os.path.join(os.getcwd(), "data", "students.xlsx")
+    case_path = os.path.join(os.getcwd(), "data", "students_with_groups.xlsx")
     session_path = os.path.join(os.getcwd(), "data", "availability.xlsx")
 
-    options = {"seconds": 30}
+    options = {"seconds": 1000}
     scheduler = Scheduler(
         student_file_path=case_path, availability_file_path=session_path
     )

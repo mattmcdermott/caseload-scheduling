@@ -6,10 +6,9 @@ from calendar_view.core.event import Event, EventStyles
 from PIL import ImageFont
 from pkg_resources import resource_filename
 
-font_path: str = "Roboto-Regular.ttf"
-
 
 def image_font(size: int):
+    font_path: str = "Roboto-Regular.ttf"
     path: str = resource_filename("calendar_view.resources.fonts", font_path)
     return ImageFont.truetype(path, size)
 
