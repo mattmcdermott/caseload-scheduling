@@ -1,3 +1,4 @@
+"""Class and script for scheduling student therapy appointments."""
 import os
 from itertools import product
 
@@ -7,244 +8,82 @@ import pandas as pd
 import pyomo.environ as pe
 import pyomo.gdp as pyogdp
 
+from constraints import *
+from objective import *
+from plotting import *
+from utils import *
+
+ub = 5 * 1440  # total number of mins in a week
+
 
 class Scheduler:
     """
-    Schedule ophthalmology cases to theatre sessions
+    Schedule appointments for students to attend therapy sessions.
     """
 
-    def __init__(self, case_file_path, session_file_path):
+    def __init__(self, student_file_path, availability_file_path):
         """
         Read case and session data into Pandas DataFrames
         Args:
-            case_file_path (str): path to case data in CSV format
-            session_file_path (str): path to theatre session data in CSV format
+            student_file_path (str): path to case data in CSV format
+            availability_file_path (str): path to SESSION session data in CSV format
         """
-        try:
-            self.df_cases = pd.read_csv(case_file_path)
-        except FileNotFoundError:
-            print("Case data not found.")
+        self.df_cases = pd.read_excel(student_file_path)
+        self.df_days = pd.read_excel(availability_file_path)
 
-        try:
-            self.df_sessions = pd.read_csv(session_file_path)
-        except FileNotFoundError:
-            print("Session data not found")
+        self.available_windows = self._get_available_windows()
+        self.sessions = self._get_unique_availabilities()
 
+        self.student_availabilities = self._get_student_availabilities()
         self.model = self.create_model()
 
-    def _generate_case_durations(self):
-        """
-        Generate mapping of cases IDs to median case time for the procedure
-        Returns:
-            (dict): dictionary with CaseID as key and median case time (mins) for procedure as value
-        """
-        return pd.Series(
-            self.df_cases["Duration"].values, index=self.df_cases["CaseID"]
-        ).to_dict()
-
-    def _generate_session_durations(self):
-        """
-        Generate mapping of all theatre sessions IDs to session duration in minutes
-        Returns:
-            (dict): dictionary with SessionID as key and session duration as value
-        """
-        return pd.Series(
-            self.df_sessions["Duration"].values, index=self.df_sessions["SessionID"]
-        ).to_dict()
-
-    def _generate_session_start_times(self):
-        """
-        Generate mapping from SessionID to session start time
-        Returns:
-            (dict): dictionary with SessionID as key and start time in minutes since midnight as value
-        """
-        # Convert session start time from HH:MM:SS format into seconds elapsed since midnight
-        self.df_sessions.loc[:, "Start"] = (
-            pd.to_timedelta(self.df_sessions["Start"].to_list()).total_seconds() / 60
-        )
-        return pd.Series(
-            self.df_sessions["Start"].values, index=self.df_sessions["SessionID"]
-        ).to_dict()
-
-    def _get_ordinal_case_deadlines(self):
-        """
-        #TODO
-        Returns:
-
-        """
-        self.df_cases.loc[:, "TargetDeadline"] = pd.to_datetime(
-            self.df_cases["TargetDeadline"], format="%d/%m/%Y"
-        )
-        self.df_cases.loc[:, "TargetDeadline"] = self.df_cases["TargetDeadline"].apply(
-            lambda date: date.toordinal()
-        )
-        return pd.Series(
-            self.df_cases["TargetDeadline"].values, index=self.df_cases["CaseID"]
-        ).to_dict()
-
-    def _get_ordinal_session_dates(self):
-        """
-        #TODO
-        Returns:
-
-        """
-        self.df_sessions.loc[:, "Date"] = pd.to_datetime(
-            self.df_sessions["Date"], format="%d/%m/%Y"
-        )
-        self.df_sessions.loc[:, "Date"] = self.df_sessions["Date"].apply(
-            lambda date: date.toordinal()
-        )
-        return pd.Series(
-            self.df_sessions["Date"].values, index=self.df_sessions["SessionID"]
-        ).to_dict()
-
-    def _generate_disjunctions(self):
-        """
-        #TODO
-        Returns:
-            disjunctions (list): list of tuples containing disjunctions
-        """
-        cases = self.df_cases["CaseID"].to_list()
-        sessions = self.df_sessions["SessionID"].to_list()
-        disjunctions = []
-        for case1, case2, session in product(cases, cases, sessions):
-            if (case1 != case2) and (case2, case1, session) not in disjunctions:
-                disjunctions.append((case1, case2, session))
-
-        return disjunctions
-
     def create_model(self):
+        """Create pyomo model"""
         model = pe.ConcreteModel()
 
-        # Model Data
-
-        # List of case IDs in surgical waiting list
-        model.CASES = pe.Set(initialize=self.df_cases["CaseID"].tolist())
-        # List of sessions IDs
-        model.SESSIONS = pe.Set(initialize=self.df_sessions["SessionID"].tolist())
-        # List of tasks - all possible (caseID, sessionID) combination
+        model.CASES = pe.Set(initialize=self.df_cases["Name"].tolist())
+        model.SESSIONS = pe.Set(initialize=list(self.sessions.keys()))
         model.TASKS = pe.Set(initialize=model.CASES * model.SESSIONS, dimen=2)
-        # The duration (median case time) for each operation
+        model.IS_AVAILABLE = pe.Param(
+            model.TASKS,
+            initialize=self._generate_availabilities(model.TASKS),
+            within=pe.Binary,
+        )
+
         model.CASE_DURATION = pe.Param(
             model.CASES, initialize=self._generate_case_durations()
         )
-        # The duration of each theatre session
-        model.SESSION_DURATION = pe.Param(
-            model.SESSIONS, initialize=self._generate_session_durations()
-        )
-        # The start time of each theatre session
         model.SESSION_START_TIME = pe.Param(
             model.SESSIONS, initialize=self._generate_session_start_times()
         )
-        # The deadline of each case
-        model.CASE_DEADLINES = pe.Param(
-            model.CASES, initialize=self._get_ordinal_case_deadlines()
+        model.SESSION_END_TIME = pe.Param(
+            model.SESSIONS, initialize=self._generate_session_end_times()
         )
-        # The date of each theatre session
-        model.SESSION_DATES = pe.Param(
-            model.SESSIONS, initialize=self._get_ordinal_session_dates()
+        model.DISJUNCTIONS = pe.Set(
+            initialize=self._generate_disjunctions(model.TASKS), dimen=4
         )
 
-        model.DISJUNCTIONS = pe.Set(initialize=self._generate_disjunctions(), dimen=3)
-
-        ub = 1440  # seconds in a day
         model.M = pe.Param(initialize=1e3 * ub)  # big M
-        max_util = 0.85
         num_cases = self.df_cases.shape[0]
 
-        # Decision Variables
         model.SESSION_ASSIGNED = pe.Var(model.TASKS, domain=pe.Binary)
         model.CASE_START_TIME = pe.Var(
             model.TASKS, bounds=(0, ub), within=pe.PositiveReals
         )
-        model.CASES_IN_SESSION = pe.Var(
+        model.STUDENTS_IN_SESSION = pe.Var(
             model.SESSIONS, bounds=(0, num_cases), within=pe.PositiveReals
         )
 
-        # Objective
-        def objective_function(model):
-            return pe.summation(model.CASES_IN_SESSION)
-            # return sum([model.SESSION_ASSIGNED[case, session] for case in model.CASES for session in model.SESSIONS])
-
-        model.OBJECTIVE = pe.Objective(rule=objective_function, sense=pe.maximize)
-
-        # Constraints
-
-        # Case start time must be after start time of assigned theatre session
-        def case_start_time(model, case, session):
-            return model.CASE_START_TIME[case, session] >= model.SESSION_START_TIME[
-                session
-            ] - ((1 - model.SESSION_ASSIGNED[(case, session)]) * model.M)
-
+        model.OBJECTIVE = pe.Objective(rule=summation, sense=pe.maximize)
         model.CASE_START = pe.Constraint(model.TASKS, rule=case_start_time)
-
-        # Case end time must be before end time of assigned theatre session
-        def case_end_time(model, case, session):
-            return model.CASE_START_TIME[case, session] + model.CASE_DURATION[
-                case
-            ] <= model.SESSION_START_TIME[session] + model.SESSION_DURATION[
-                session
-            ] * max_util + (
-                (1 - model.SESSION_ASSIGNED[(case, session)]) * model.M
-            )
-
         model.CASE_END_TIME = pe.Constraint(model.TASKS, rule=case_end_time)
-
-        # Cases can be assigned to a maximum of one session
-        def session_assignment(model, case):
-            return (
-                sum(
-                    [
-                        model.SESSION_ASSIGNED[(case, session)]
-                        for session in model.SESSIONS
-                    ]
-                )
-                <= 1
-            )
-
         model.SESSION_ASSIGNMENT = pe.Constraint(model.CASES, rule=session_assignment)
-
-        def set_deadline_condition(model, case, session):
-            return model.SESSION_DATES[session] <= model.CASE_DEADLINES[case] + (
-                (1 - model.SESSION_ASSIGNED[case, session]) * model.M
-            )
-
-        model.APPLY_DEADLINE = pe.Constraint(model.TASKS, rule=set_deadline_condition)
-
-        def no_case_overlap(model, case1, case2, session):
-            return [
-                model.CASE_START_TIME[case1, session] + model.CASE_DURATION[case1]
-                <= model.CASE_START_TIME[case2, session]
-                + (
-                    (
-                        2
-                        - model.SESSION_ASSIGNED[case1, session]
-                        - model.SESSION_ASSIGNED[case2, session]
-                    )
-                    * model.M
-                ),
-                model.CASE_START_TIME[case2, session] + model.CASE_DURATION[case2]
-                <= model.CASE_START_TIME[case1, session]
-                + (
-                    (
-                        2
-                        - model.SESSION_ASSIGNED[case1, session]
-                        - model.SESSION_ASSIGNED[case2, session]
-                    )
-                    * model.M
-                ),
-            ]
+        model.VALID_WITH_SCHEDULE = pe.Constraint(model.TASKS, rule=valid_with_schedule)
 
         model.DISJUNCTIONS_RULE = pyogdp.Disjunction(
             model.DISJUNCTIONS, rule=no_case_overlap
         )
-
-        def theatre_util(model, session):
-            return model.CASES_IN_SESSION[session] == sum(
-                [model.SESSION_ASSIGNED[case, session] for case in model.CASES]
-            )
-
-        model.THEATRE_UTIL = pe.Constraint(model.SESSIONS, rule=theatre_util)
+        model.SESSION_UTIL = pe.Constraint(model.SESSIONS, rule=session_util)
 
         pe.TransformationFactory("gdp.bigm").apply_to(model)
 
@@ -269,19 +108,20 @@ class Scheduler:
         results = [
             {
                 "Case": case,
+                "Grade": self.df_cases[self.df_cases["Name"] == case]["Grade"].iloc[0],
                 "Session": session,
-                "Session Date": self.model.SESSION_DATES[session],
-                "Case Deadline": self.model.CASE_DEADLINES[case],
-                "Days before deadline": self.model.CASE_DEADLINES[case]
-                - self.model.SESSION_DATES[session],
                 "Start": self.model.CASE_START_TIME[case, session](),
+                "End": self.model.CASE_START_TIME[case, session]()
+                + self.model.CASE_DURATION[case],
                 "Assignment": self.model.SESSION_ASSIGNED[case, session](),
             }
             for (case, session) in self.model.TASKS
         ]
 
         self.df_times = pd.DataFrame(results)
-        print(self.df_times.iloc[0:40])
+        self.df_times[self.df_times["Assignment"] == 1].drop(
+            columns=["Assignment"]
+        ).to_excel("results.xlsx")
 
         all_cases = self.model.CASES.value_list
         cases_assigned = []
@@ -302,10 +142,10 @@ class Scheduler:
             )
         )
         print("Cases missed: ", cases_missed)
-        self.model.CASES_IN_SESSION.pprint()
+        self.model.STUDENTS_IN_SESSION.pprint()
         print(
             "Total Objective = {}".format(
-                sum(self.model.CASES_IN_SESSION.get_values().values())
+                sum(self.model.STUDENTS_IN_SESSION.get_values().values())
             )
         )
         print(
@@ -313,11 +153,10 @@ class Scheduler:
                 solver_results["Problem"].__getitem__(0)["Number of constraints"]
             )
         )
-        print(self.df_times[self.df_times["Assignment"] == 1].to_string())
-        self.draw_gantt()
+        plot_calendar(self.df_times)
 
-    def draw_gantt(self):
-        df = self.df_times[self.df_times["Assignment"] == 1]
+    def plot_results(self):
+        df = self.df_times
         cases = sorted(list(df["Case"].unique()))
         sessions = sorted(list(df["Session"].unique()))
 
@@ -335,17 +174,17 @@ class Scheduler:
 
         fig, ax = plt.subplots(1, 1)
         for c_ix, c in enumerate(cases, 1):
-            for s_ix, s in enumerate(sessions, 1):
+            for _, s in enumerate(sessions, 1):
                 if (c, s) in df.index:
                     xs = df.loc[(c, s), "Start"]
                     xf = (
                         df.loc[(c, s), "Start"]
-                        + self.df_cases[self.df_cases["CaseID"] == c]["Duration"].iloc[0]
+                        + self.df_cases[self.df_cases["Name"] == c]["Duration"].iloc[0]
                     )
                     ax.plot([xs, xf], [s] * 2, c=colors[c_ix % 7], **bar_style)
                     ax.text((xs + xf) / 2, s, c, **text_style)
 
-        ax.set_title("Assigning Ophthalmology Cases to Theatre Sessions")
+        ax.set_title("Assigning Ophthalmology Cases to SESSION Sessions")
         ax.set_xlabel("Time")
         ax.set_ylabel("Sessions")
         ax.grid(True)
@@ -353,11 +192,113 @@ class Scheduler:
         fig.tight_layout()
         plt.show()
 
+    def _generate_case_durations(self) -> dict:
+        """
+        Generate mapping of students sessions to durations
+
+        Returns:
+            dictionary with student name as key and duration as value (mins)
+        """
+        return pd.Series(
+            self.df_cases["Duration"].values, index=self.df_cases["Name"]
+        ).to_dict()
+
+    def _generate_session_start_times(self):
+        """
+        Generate mapping from SessionID to session start time
+
+        Returns:
+            (dict): dictionary with SessionID as key and start time in minutes since midnight as value
+        """
+        return {session_id: window[0] for session_id, window in self.sessions.items()}
+
+    def _generate_session_end_times(self) -> dict:
+        """
+        Generate mapping of all availability to duration in minutes
+
+        Returns:
+            (dict): dictionary with availability day as key and duration as value (mins)
+        """
+        return {session_id: window[1] for session_id, window in self.sessions.items()}
+
+    def _get_available_windows(self):
+        windows = []
+        for _, row in self.df_days.iterrows():
+            windows.append(
+                (
+                    day_and_time_to_mins(row["Day"], row["Start"].isoformat()),
+                    day_and_time_to_mins(row["Day"], row["End"].isoformat()),
+                )
+            )
+
+        return windows
+
+    def _get_unique_availabilities(self):
+        availabilities = set()
+        for _, row in self.df_cases.iterrows():
+            for col, day in row.items():
+                if "Day" in col and not pd.isna(day):
+                    num = int(col.split("_")[1])
+                    availability = (
+                        day_and_time_to_mins(day, row[f"Start_{num}"].isoformat()),
+                        day_and_time_to_mins(day, row[f"End_{num}"].isoformat()),
+                    )
+                    if any(
+                        is_within_window(availability, available_window)
+                        for available_window in self.available_windows
+                    ):
+                        availabilities.add(availability)
+
+        return {i: t for i, t in enumerate(availabilities)}
+
+    def _get_student_availabilities(self):
+        availabilities = {}
+        for _, row in self.df_cases.iterrows():
+            name = row["Name"]
+            times = []
+            for col, val in row.items():
+                if "Day" in col and not pd.isna(val):
+                    num = int(col.split("_")[1])
+                    availability = (
+                        day_and_time_to_mins(val, row[f"Start_{num}"].isoformat()),
+                        day_and_time_to_mins(val, row[f"End_{num}"].isoformat()),
+                    )
+                    times.append(availability)
+            availabilities[name] = times
+        return availabilities
+
+    def _generate_availabilities(self, tasks):
+        availabilities = {}
+        for case, session in tasks:
+            availabilities[case, session] = self._check_if_available(case, session)
+        return availabilities
+
+    def _check_if_available(self, case, session):
+        """ """
+        for window in self.student_availabilities[case]:
+            if is_within_window(window, self.sessions[session]):
+                return 1
+        return 0
+
+    def _generate_disjunctions(self, tasks):
+        """
+        Returns:
+            disjunctions (list): list of tuples containing disjunctions
+        """
+        disjunctions = []
+        for t1, t2 in product(tasks, tasks):
+            if t1 != t2:
+                disjunctions.append((t1, t2))
+
+        return disjunctions
+
 
 if __name__ == "__main__":
-    case_path = os.path.join(os.getcwd(), "data", "cases.csv")
-    session_path = os.path.join(os.getcwd(), "data", "sessions.csv")
+    case_path = os.path.join(os.getcwd(), "data", "students.xlsx")
+    session_path = os.path.join(os.getcwd(), "data", "availability.xlsx")
 
-    options = {"seconds": 10}
-    scheduler = Scheduler(case_file_path=case_path, session_file_path=session_path)
+    options = {"seconds": 30}
+    scheduler = Scheduler(
+        student_file_path=case_path, availability_file_path=session_path
+    )
     scheduler.solve(solver_name="cbc", options=options)
