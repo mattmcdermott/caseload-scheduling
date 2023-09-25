@@ -49,6 +49,9 @@ class Scheduler:
         for case, session in model.CASES * model.SESSIONS:
             if self._check_if_available(case, session):
                 tasks.append((case, session))
+        for t in tasks:
+            if t[0] == "MENDEZ":
+                print(self.sessions[t[1]])
 
         model.TASKS = pe.Set(initialize=tasks, dimen=2)
         model.CASE_DURATION = pe.Param(
@@ -279,7 +282,7 @@ class Scheduler:
     def _check_if_available(self, case, session):
         """ """
         for window in self.student_availabilities[case]:
-            if is_within_window(window, self.sessions[session]):
+            if window == self.sessions[session]:
                 return True
         return False
 
@@ -314,7 +317,7 @@ if __name__ == "__main__":
     case_path = os.path.join(os.getcwd(), "data", "students_with_groups.xlsx")
     session_path = os.path.join(os.getcwd(), "data", "availability.xlsx")
 
-    options = {"seconds": 1000}
+    options = {"seconds": 30}
     scheduler = Scheduler(
         student_file_path=case_path, availability_file_path=session_path
     )
