@@ -44,6 +44,25 @@ def no_case_overlap(model, case1, session1, case2, session2):
     ]
 
 
+def no_double_days(model, case1, session1, case2, session2):
+    task1 = (case1, session1)
+    task2 = (case2, session2)
+    return [
+        (model.CASE_START_TIME[task1] - model.CASE_START_TIME[task2])
+        >= (
+            800
+            - (2 - model.SESSION_ASSIGNED[task1] - model.SESSION_ASSIGNED[task2])
+            * model.M
+        ),
+        (model.CASE_START_TIME[task2] - model.CASE_START_TIME[task1])
+        >= (
+            800
+            - (2 - model.SESSION_ASSIGNED[task1] - model.SESSION_ASSIGNED[task2])
+            * model.M
+        ),
+    ]
+
+
 def session_util(model, session):
     """How much of the session is utilized"""
     return model.STUDENTS_IN_SESSION[session] == sum(

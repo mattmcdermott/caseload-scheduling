@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools-git-versioning"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caseload-scheduling"
+description = "Identifying an optimal caseload schedule via linear programming. Ideal for therapists with complex caseload constraints, such as speech language pathologists (SLPs)."
+readme = "README.md"
+keywords = ["linear programming", "optimization", "calendar", "scheduling"]
+license = { text = "modified BSD" }
+authors = [{ name = "Matthew McDermott", email = "mcdermott@berkeley.edu" }]
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = ["pyomo>=6.6.2", "highspy>=1.5.3", "calendar-view>=2.3.2"]
+
+[project.urls]
+homepage = "https://materialsproject.github.io/reaction-network/"
+
+[tool.flake8]
+exclude = ".git,__pycache__,tests"
+max-line-length = 88
+max-doc-length = 88
+extend-ignore = "E741,W291,W293,E501,E231,E203,F401"
+min-python-version = "3.8.0"
+docstring-convention = "google"
+
+[tool.isort]
+profile = "black"
+known_first_party = "cschedule"
+
+[tool.setuptools.package-data]
+cschedule = ["py.typed"]
+
+[tool.setuptools-git-versioning]
+enabled = true

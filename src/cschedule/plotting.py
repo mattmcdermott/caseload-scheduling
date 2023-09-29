@@ -2,7 +2,7 @@ import pandas as pd
 from calendar_view.calendar import Calendar
 from calendar_view.config import style
 from calendar_view.core import data
-from calendar_view.core.event import Event, EventStyles
+from calendar_view.core.event import Event, EventStyle, EventStyles
 from PIL import ImageFont
 from pkg_resources import resource_filename
 
@@ -17,22 +17,30 @@ def get_style(grade):
     """
     Get color by grade of school (range from -1 to 5)
     """
-    if grade == -1:
-        return EventStyles.BLUE
-    elif grade == 0:
-        return EventStyles.GRAY
+    EventStyles.ORANGE = EventStyle(
+        event_border=(250, 165, 0, 240), event_fill=(250, 165, 0, 140)
+    )
+    EventStyles.PURPLE = EventStyle(
+        event_border=(128, 0, 128, 240), event_fill=(128, 0, 128, 150)
+    )
+    EventStyles.PINK = EventStyle(
+        event_border=(255, 192, 203, 240), event_fill=(255, 192, 203, 180)
+    )
+
+    if grade == 0:
+        return EventStyles.PINK
     elif grade == 1:
-        return EventStyles.GREEN
-    elif grade == 2:
-        return EventStyles.RED
-    elif grade == 3:
         return EventStyles.BLUE
-    elif grade == 4:
-        return EventStyles.GRAY
-    elif grade == 5:
+    elif grade == 2:
         return EventStyles.GREEN
-    else:
+    elif grade == 3:
+        return EventStyles.PURPLE
+    elif grade == 4:
+        return EventStyles.ORANGE
+    elif grade == 5:
         return EventStyles.RED
+    elif grade == -1:
+        return EventStyles.GRAY
 
 
 def plot_calendar(results_df):

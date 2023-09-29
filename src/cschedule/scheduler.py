@@ -49,9 +49,6 @@ class Scheduler:
         for case, session in model.CASES * model.SESSIONS:
             if self._check_if_available(case, session):
                 tasks.append((case, session))
-        for t in tasks:
-            if t[0] == "MENDEZ":
-                print(self.sessions[t[1]])
 
         model.TASKS = pe.Set(initialize=tasks, dimen=2)
         model.CASE_DURATION = pe.Param(
@@ -65,6 +62,9 @@ class Scheduler:
         )
         model.DISJUNCTIONS = pe.Set(
             initialize=self._generate_disjunctions(model.TASKS), dimen=4
+        )
+        model.STUDENT_DISJUNCTIONS = pe.Set(
+            initialize=self._generate_student_disjunctions(model.TASKS), dimen=4
         )
 
         model.M = pe.Param(initialize=1e3 * ub)  # big M
@@ -87,6 +87,9 @@ class Scheduler:
 
         model.DISJUNCTIONS_RULE = pyogdp.Disjunction(
             model.DISJUNCTIONS, rule=no_case_overlap
+        )
+        model.STUDENT_DISJUNCTIONS_RULE = pyogdp.Disjunction(
+            model.STUDENT_DISJUNCTIONS, rule=no_double_days
         )
         print("Finished disjunction constraints.")
 
@@ -160,6 +163,9 @@ class Scheduler:
                 solver_results["Problem"].__getitem__(0)["Number of constraints"]
             )
         )
+
+        results_df = pd.read_excel("results.xlsx")
+        plot_calendar(results_df)
 
     def plot_results(self):
         df = self.df_times
@@ -292,7 +298,7 @@ class Scheduler:
             disjunctions (list): list of tuples containing disjunctions
         """
         disjunctions = []
-        for t1, t2 in tqdm(product(tasks, tasks)):
+        for t1, t2 in product(tasks, tasks):
             if t1[0] != t2[0] and is_overlapping(
                 self.sessions[t1[1]], self.sessions[t2[1]]
             ):
@@ -304,21 +310,21 @@ class Scheduler:
 
     def _generate_student_disjunctions(self, tasks):
         disjunctions = []
-        for t1, t2 in tqdm(product(tasks, tasks)):
-            if t1[0] != t2[0] and is_overlapping(
-                self.sessions[t1[1]], self.sessions[t2[1]]
-            ):
+        for t1, t2 in product(tasks, tasks):
+            if t1[0].split("_")[0] == t2[0].split("_")[0] and t1[0] != t2[0]:
                 disjunctions.append((t1, t2))
 
-        print(f"Made {len(disjunctions)} disjunctions!")
+        print(f"Made {len(disjunctions)} student disjunctions!")
+        return disjunctions
 
 
 if __name__ == "__main__":
-    case_path = os.path.join(os.getcwd(), "data", "students_with_groups.xlsx")
-    session_path = os.path.join(os.getcwd(), "data", "availability.xlsx")
+    case_path = (
+        "/Users/mcdermott/My Drive/postgrad/f23/scheduling/students_with_groups.xlsx"
+    )
+    session_path = "/Users/mcdermott/My Drive/postgrad/f23/scheduling/availability.xlsx"
 
-    options = {"seconds": 30}
     scheduler = Scheduler(
         student_file_path=case_path, availability_file_path=session_path
     )
-    scheduler.solve(solver_name="cbc", options=options)
+    scheduler.solve(solver_name="appsi_highs")
