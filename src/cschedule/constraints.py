@@ -3,9 +3,9 @@
 __all__ = [
     "case_start_time",
     "case_end_time",
-    "session_assignment",
+    "only_one_session",
     "no_case_overlap",
-    "no_double_days",
+    "no_same_day",
     "session_utilized",
 ]
 
@@ -26,7 +26,7 @@ def case_end_time(model, case, session):
     )
 
 
-def session_assignment(model, case):
+def only_one_session(model, case):
     """Ensures that cases are only assigned to one session."""
     return (
         sum([model.SESSION_ASSIGNED[task] for task in model.TASKS if task[0] == case])
@@ -63,9 +63,9 @@ def session_utilized(model, session):
     )
 
 
-def no_double_days(model, case1, session1, case2, session2):
+def no_same_day(model, case1, session1, case2, session2):
     """
-    Ensures that students are not scheduled for two sessions on the same day.
+    Ensures that a student is not scheduled for two sessions on the same day.
     """
     task1 = (case1, session1)
     task2 = (case2, session2)
