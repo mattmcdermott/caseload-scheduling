@@ -1,8 +1,15 @@
-import pandas as pd
+from pandas import to_timedelta
+
+__all__ = [
+    "time_to_mins",
+    "day_and_time_to_mins",
+    "is_within_window",
+    "is_overlapping",
+]
 
 
 def time_to_mins(time):
-    return pd.to_timedelta(time).total_seconds() / 60
+    return to_timedelta(time).total_seconds() / 60
 
 
 def day_and_time_to_mins(day, time):

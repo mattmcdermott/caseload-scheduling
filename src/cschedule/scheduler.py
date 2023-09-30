@@ -1,36 +1,50 @@
 """Class and script for scheduling student therapy appointments."""
-import os
 from itertools import product
+from pathlib import Path
 
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 import pandas as pd
 import pyomo.environ as pe
 import pyomo.gdp as pyogdp
-from tqdm import tqdm
 
-from constraints import *
-from objective import *
-from plotting import *
-from utils import *
+from cschedule.constraints import *
+from cschedule.objective import summation
+from cschedule.plotting import plot_calendar
+from cschedule.utils import *
 
-ub = 5 * 1440  # total number of mins in a week
+TOTAL_MINS_IN_WEEK = 5 * 1440
 
 
 class Scheduler:
     """
-    Schedule appointments for students to attend therapy sessions.
+    This class is used to schedule student therapy appointments. It takes in two tables:
+    one containing the cases, and another containing available sessions.
+
+    Please see the data folder for examples of the format of these tables.
+
+    This code was inspired by Lewis Woolfson's repository:
+        https://github.com/Lewisw3/theatre-scheduling
     """
 
-    def __init__(self, student_file_path, availability_file_path):
+    def __init__(self, cases_fn=None, sessions_fn=None):
         """
-        Read case and session data into Pandas DataFrames
         Args:
-            student_file_path (str): path to case data in CSV format
-            availability_file_path (str): path to SESSION session data in CSV format
+            cases_fn (str): filename/path to case data in XLSX or CSV format. If this is
+                not provided, the default case data will be used (data/cases.xlsx).
+            sessions_fn (str): filename/path to session data in XLSX or CSV format. If
+                this is not provided, the default session data will be used
+                (data/sessions.xlsx).
         """
-        self.df_cases = pd.read_excel(student_file_path)
-        self.df_days = pd.read_excel(availability_file_path)
+        data_dir = Path(__file__).resolve().parents[1] / "data"
+
+        if cases_fn is None:
+            cases_fn = data_dir / "cases.xlsx"
+        if sessions_fn is None:
+            sessions_fn = data_dir / "sessions.xlsx"
+
+        load_function = pd.read_excel if cases_fn.endswith("xlsx") else pd.read_csv
+
+        self.df_cases = load_function(cases_fn)
+        self.df_sessions = load_function(sessions_fn)
 
         self.available_windows = self._get_available_windows()
         self.sessions = self._get_unique_availabilities()
@@ -38,7 +52,7 @@ class Scheduler:
         self.student_availabilities = self._get_student_availabilities()
         self.model = self.create_model()
 
-    def create_model(self):
+    def create_model(self, no_duplicate_days=True):
         """Create pyomo model"""
         model = pe.ConcreteModel()
 
@@ -67,12 +81,12 @@ class Scheduler:
             initialize=self._generate_student_disjunctions(model.TASKS), dimen=4
         )
 
-        model.M = pe.Param(initialize=1e3 * ub)  # big M
+        model.M = pe.Param(initialize=1e3 * TOTAL_MINS_IN_WEEK)  # big M
         num_cases = self.df_cases.shape[0]
 
         model.SESSION_ASSIGNED = pe.Var(model.TASKS, domain=pe.Binary)
         model.CASE_START_TIME = pe.Var(
-            model.TASKS, bounds=(0, ub), within=pe.PositiveReals
+            model.TASKS, bounds=(0, TOTAL_MINS_IN_WEEK), within=pe.PositiveReals
         )
         model.STUDENTS_IN_SESSION = pe.Var(
             model.SESSIONS, bounds=(0, num_cases), within=pe.PositiveReals
@@ -83,37 +97,29 @@ class Scheduler:
         model.CASE_END_TIME = pe.Constraint(model.TASKS, rule=case_end_time)
         model.SESSION_ASSIGNMENT = pe.Constraint(model.CASES, rule=session_assignment)
 
-        print("Starting disjunction constraints...")
-
         model.DISJUNCTIONS_RULE = pyogdp.Disjunction(
             model.DISJUNCTIONS, rule=no_case_overlap
         )
-        model.STUDENT_DISJUNCTIONS_RULE = pyogdp.Disjunction(
-            model.STUDENT_DISJUNCTIONS, rule=no_double_days
-        )
-        print("Finished disjunction constraints.")
+        if no_duplicate_days:
+            model.STUDENT_DISJUNCTIONS_RULE = pyogdp.Disjunction(
+                model.STUDENT_DISJUNCTIONS, rule=no_double_days
+            )
 
-        model.SESSION_UTIL = pe.Constraint(model.SESSIONS, rule=session_util)
+        model.SESSION_UTIL = pe.Constraint(model.SESSIONS, rule=session_utilized)
 
         pe.TransformationFactory("gdp.bigm").apply_to(model)
 
         return model
 
-    def solve(self, solver_name, options=None, solver_path=None, local=True):
-        if solver_path is not None:
-            solver = pe.SolverFactory(solver_name, executable=solver_path)
-        else:
-            solver = pe.SolverFactory(solver_name)
+    def solve(self, solver_name="appsi_highs", options=None):
+        solver = pe.SolverFactory(solver_name)
 
         if options is not None:
             for key, v in options.items():
                 solver.options[key] = v
 
-        if local:
-            solver_results = solver.solve(self.model, tee=True)
-        else:
-            solver_manager = pe.SolverManagerFactory("neos")
-            solver_results = solver_manager.solve(self.model, opt=solver)
+        solver_results = solver.solve(self.model, tee=True)
+        self._log_solver_output()
 
         results = [
             {
@@ -133,76 +139,8 @@ class Scheduler:
             columns=["Assignment"]
         ).to_excel("results.xlsx")
 
-        all_cases = self.model.CASES.value_list
-        cases_assigned = []
-        for case, session in self.model.SESSION_ASSIGNED:
-            if self.model.SESSION_ASSIGNED[case, session]() == 1:
-                cases_assigned.append(case)
-
-        cases_missed = list(set(all_cases).difference(cases_assigned))
-        print(
-            "Number of cases assigned = {} out of {}:".format(
-                len(cases_assigned), len(all_cases)
-            )
-        )
-        print("Cases assigned: ", cases_assigned)
-        print(
-            "Number of cases missed = {} out of {}:".format(
-                len(cases_missed), len(all_cases)
-            )
-        )
-        print("Cases missed: ", cases_missed)
-        self.model.STUDENTS_IN_SESSION.pprint()
-        print(
-            "Total Objective = {}".format(
-                sum(self.model.STUDENTS_IN_SESSION.get_values().values())
-            )
-        )
-        print(
-            "Number of constraints = {}".format(
-                solver_results["Problem"].__getitem__(0)["Number of constraints"]
-            )
-        )
-
         results_df = pd.read_excel("results.xlsx")
         plot_calendar(results_df)
-
-    def plot_results(self):
-        df = self.df_times
-        cases = sorted(list(df["Case"].unique()))
-        sessions = sorted(list(df["Session"].unique()))
-
-        bar_style = {"alpha": 1.0, "lw": 25, "solid_capstyle": "butt"}
-        text_style = {
-            "color": "white",
-            "weight": "bold",
-            "ha": "center",
-            "va": "center",
-        }
-        colors = cm.Dark2.colors
-
-        df.sort_values(by=["Case", "Session"])
-        df.set_index(["Case", "Session"], inplace=True)
-
-        fig, ax = plt.subplots(1, 1)
-        for c_ix, c in enumerate(cases, 1):
-            for _, s in enumerate(sessions, 1):
-                if (c, s) in df.index:
-                    xs = df.loc[(c, s), "Start"]
-                    xf = (
-                        df.loc[(c, s), "Start"]
-                        + self.df_cases[self.df_cases["Name"] == c]["Duration"].iloc[0]
-                    )
-                    ax.plot([xs, xf], [s] * 2, c=colors[c_ix % 7], **bar_style)
-                    ax.text((xs + xf) / 2, s, c, **text_style)
-
-        ax.set_title("Assigning Ophthalmology Cases to SESSION Sessions")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Sessions")
-        ax.grid(True)
-
-        fig.tight_layout()
-        plt.show()
 
     def _generate_case_durations(self) -> dict:
         """
@@ -235,7 +173,7 @@ class Scheduler:
 
     def _get_available_windows(self):
         windows = []
-        for _, row in self.df_days.iterrows():
+        for _, row in self.df_sessions.iterrows():
             windows.append(
                 (
                     day_and_time_to_mins(row["Day"], row["Start"].isoformat()),
@@ -317,14 +255,29 @@ class Scheduler:
         print(f"Made {len(disjunctions)} student disjunctions!")
         return disjunctions
 
+    def _log_solver_output(self):
+        all_cases = self.model.CASES.value_list
+        cases_assigned = []
+        for case, session in self.model.SESSION_ASSIGNED:
+            if self.model.SESSION_ASSIGNED[case, session]() == 1:
+                cases_assigned.append(case)
 
-if __name__ == "__main__":
-    case_path = (
-        "/Users/mcdermott/My Drive/postgrad/f23/scheduling/students_with_groups.xlsx"
-    )
-    session_path = "/Users/mcdermott/My Drive/postgrad/f23/scheduling/availability.xlsx"
-
-    scheduler = Scheduler(
-        student_file_path=case_path, availability_file_path=session_path
-    )
-    scheduler.solve(solver_name="appsi_highs")
+        cases_missed = list(set(all_cases).difference(cases_assigned))
+        print(
+            "Number of cases assigned = {} out of {}:".format(
+                len(cases_assigned), len(all_cases)
+            )
+        )
+        print("Cases assigned: ", cases_assigned)
+        print(
+            "Number of cases missed = {} out of {}:".format(
+                len(cases_missed), len(all_cases)
+            )
+        )
+        print("Cases missed: ", cases_missed)
+        self.model.STUDENTS_IN_SESSION.pprint()
+        print(
+            "Total Objective = {}".format(
+                sum(self.model.STUDENTS_IN_SESSION.get_values().values())
+            )
+        )

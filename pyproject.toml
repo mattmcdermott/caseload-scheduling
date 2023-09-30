@@ -19,7 +19,14 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.8"
-dependencies = ["pyomo>=6.6.2", "highspy>=1.5.3", "calendar-view>=2.3.2"]
+dependencies = [
+    "pyomo>=6.6.2",
+    "highspy>=1.5.3",
+    "calendar-view>=2.3.2",
+    "pandas>=2.1.1",
+    "openpyxl>=3.1.2",
+    "Pillow<=9.5.0",
+]
 
 [project.urls]
 homepage = "https://materialsproject.github.io/reaction-network/"
@@ -35,6 +42,9 @@ docstring-convention = "google"
 [tool.isort]
 profile = "black"
 known_first_party = "cschedule"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 cschedule = ["py.typed"]
