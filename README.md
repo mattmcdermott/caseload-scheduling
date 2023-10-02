@@ -1,7 +1,9 @@
 # caseload-scheduling
 
 This package is a Python-based tool for designing optimal weekly schedules for a
-**caseload**. A **caseload** is defined as a set of appointments, with prescribed
+**caseload**. 
+
+A **caseload** is defined as a set of appointments with a prescribed
 duration (e.g., 30 mins) that can be scheduled in a particular set of available time
 slots (e.g., Mon 9:30 AM - 1:00 PM, Tue 9:30 AM - 1:00 PM, etc.). This applies to
 therapists, social workers, doctors, or other professionals attempting to see multiple
