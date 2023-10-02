@@ -4,16 +4,16 @@ This package is a Python-based tool for designing optimal weekly schedules for a
 **caseload**. 
 
 A **caseload** is defined as a set of appointments with a prescribed
-duration (e.g., 30 mins) that can be scheduled in a particular set of available time
+duration (e.g., 30 min) that can be scheduled in a particular set of available time
 slots (e.g., Mon 9:30 AM - 1:00 PM, Tue 9:30 AM - 1:00 PM, etc.). This applies to
 therapists, social workers, doctors, or other professionals attempting to see multiple
-clients, each of whom have their own scheduling constraints.
+clients, each of whom has their own scheduling constraints.
 
 The problem is solved using a mixed-integer linear programming (MLIP) approach
-with the pyomo package, with the default HiGHS solver (installed via `highspy`).
+with the `pyomo` package, with the default HiGHS solver (installed via `highspy`).
 
 The default **objective function** maximizes the number of cases scheduled in the week, making
-this package particularly suitable to scheduling very large caseloads.
+this package is particularly suitable for scheduling very large caseloads.
 
 ## Installation
 
@@ -33,7 +33,7 @@ scripts/solve.py.
 One should edit the provided cases and sessions data files (see `data/cases.xlsx` and
 `data/sessions.xlsx`). Follow the example format (e.g., NAME_NUM for each case).
 
-The script can be then run by executing the following command from the root directory of
+The script can then be run by executing the following command from the root directory of
 the repository:
 
 ```
@@ -41,8 +41,8 @@ python scripts/solve.py
 ```
 
 The script will generate results in the `results` directory, including a spreadsheet
-summarizing the assigned times (`results.xlsx`) and a plot of the schedule on a weekly
-calendar (`calendar.png`).
+summarizing the assigned times (`results.xlsx`) and a schedule plot on a weekly
+calendar view (`calendar.png`). The schedule will look something like this:
 
 <img src="results/calendar.png" height="500">
 
