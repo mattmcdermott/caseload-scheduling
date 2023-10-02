@@ -17,27 +17,34 @@ this package particularly suitable to scheduling very large caseloads.
 
 ## Installation
 
-Simply clone the repository and install the package using pip. The -e flag denotes an
-editable install for development.
+Simply clone the repository and install the package using pip. Navigate to the root directory 
+of the package and type: 
 
-```pip install -e .```
+```
+pip install -e .
+```
+The -e flag denotes an editable install for development.
 
 ## Usage
 
 A script has been provided to demonstrate the usage of the package, located at
 scripts/solve.py.
 
-One should edit the provided cases and sessions data files (see data/cases.xlsx and
-data/sessions.xlsx).
+One should edit the provided cases and sessions data files (see `data/cases.xlsx` and
+`data/sessions.xlsx`). Follow the example format (e.g., NAME_NUM for each case).
 
 The script can be then run by executing the following command from the root directory of
 the repository:
 
-```python scripts/solve.py```
+```
+python scripts/solve.py
+```
 
 The script will generate results in the `results` directory, including a spreadsheet
 summarizing the assigned times (`results.xlsx`) and a plot of the schedule on a weekly
 calendar (`calendar.png`).
+
+<img src="results/calendar.png" height="500">
 
 ## Acknowledgements
 
