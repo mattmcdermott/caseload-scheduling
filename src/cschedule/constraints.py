@@ -11,14 +11,18 @@ __all__ = [
 
 
 def case_start_time(model, case, session):
-    """Ensures that the case start time is after the start time of the session."""
+    """
+    Ensures that the case start time is after the start time of the session.
+    """
     return model.CASE_START_TIME[case, session] >= model.SESSION_START_TIME[session] - (
         (1 - model.SESSION_ASSIGNED[(case, session)]) * model.M
     )
 
 
 def case_end_time(model, case, session):
-    """Ensures that the case end time is before the end time of the session."""
+    """
+    Ensures that the case end time is before the end time of the session.
+    """
     return model.CASE_START_TIME[case, session] + model.CASE_DURATION[
         case
     ] <= model.SESSION_END_TIME[session] + (
@@ -27,7 +31,9 @@ def case_end_time(model, case, session):
 
 
 def only_one_session(model, case):
-    """Ensures that cases are only assigned to one session."""
+    """
+    Ensures that cases are only assigned to one session.
+    """
     return (
         sum([model.SESSION_ASSIGNED[task] for task in model.TASKS if task[0] == case])
         <= 1
@@ -57,7 +63,10 @@ def no_case_overlap(model, case1, session1, case2, session2):
 
 
 def session_utilized(model, session):
-    """Ensures that"""
+    """
+    Ensures that STUDENTS_IN_SESSION is equal to one the number of cases assigned to
+    the session.
+    """
     return model.STUDENTS_IN_SESSION[session] == sum(
         [model.SESSION_ASSIGNED[task] for task in model.TASKS if task[1] == session]
     )

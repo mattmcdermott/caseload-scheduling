@@ -1,4 +1,5 @@
 """Class and script for scheduling student therapy appointments."""
+import logging
 from itertools import product
 from pathlib import Path
 
@@ -25,7 +26,12 @@ class Scheduler:
         https://github.com/Lewisw3/theatre-scheduling
     """
 
-    def __init__(self, cases_fn=None, sessions_fn=None, no_duplicate_days=True):
+    def __init__(
+        self,
+        cases_fn: str | None = None,
+        sessions_fn: str | None = None,
+        no_duplicate_days: bool = True,
+    ):
         """
         Args:
             cases_fn (str): filename/path to case data in XLSX or CSV format. If this is
@@ -53,9 +59,12 @@ class Scheduler:
 
         self.student_availabilities = self._get_student_availabilities()
         self.model = self._create_model(no_duplicate_days)
+        self._configure_logger()
+        self.logger.info(f"Successfully created model.")
 
     def _create_model(self, no_duplicate_days):
-        """Create pyomo model. This is called in the constructor.
+        """
+        Create pyomo model. This is called in the constructor.
 
         no_duplicate_days (bool): if True, then students will not be scheduled for two
             sessions on the same day. Defaults to True.
@@ -119,36 +128,65 @@ class Scheduler:
 
         return model
 
-    def solve(self, solver_name="appsi_highs", options=None):
+    def solve(
+        self, solver_name: str = "appsi_highs", options: dict | None = None
+    ) -> pd.DataFrame:
+        """
+        Solve the model using the specified solver. Default solver is "appsi_highs", a
+        solver that is installed with the highspy package, available on PyPI.
+
+        Args:
+            solver_name (str): name of the solver to use. Defaults to "appsi_highs".
+            options (dict): dictionary of solver options. Defaults to None.
+
+        Returns:
+            (pandas.DataFrame): dataframe with the results of the model. This is also
+                saved to ../results/results.xlsx.
+
+        """
         solver = pe.SolverFactory(solver_name)
 
         if options is not None:
             for key, v in options.items():
                 solver.options[key] = v
 
-        solver_results = solver.solve(self.model, tee=True)
-        self._log_solver_output()
+        solver_output = solver.solve(self.model, tee=True)
+        self._print_solver_output()
 
-        results = [
-            {
-                "Case": case,
-                "Grade": self.df_cases[self.df_cases["Name"] == case]["Grade"].iloc[0],
-                "Session": session,
-                "Start": self.model.CASE_START_TIME[case, session](),
-                "End": self.model.CASE_START_TIME[case, session]()
+        results = []
+        for case, session in self.model.TASKS:
+            start_mins = round(self.model.CASE_START_TIME[case, session](), 0)
+            end_mins = round(
+                self.model.CASE_START_TIME[case, session]()
                 + self.model.CASE_DURATION[case],
-                "Assignment": self.model.SESSION_ASSIGNED[case, session](),
-            }
-            for (case, session) in self.model.TASKS
-        ]
+                0,
+            )
+
+            day, start = mins_to_day_and_time(start_mins)
+            _, end = mins_to_day_and_time(end_mins)
+
+            results.append(
+                {
+                    "Case": case,
+                    "Grade": self.df_cases[self.df_cases["Name"] == case]["Grade"].iloc[
+                        0
+                    ],
+                    "Day": day,
+                    "Start": start,
+                    "End": end,
+                    "Assignment": self.model.SESSION_ASSIGNED[case, session](),
+                }
+            )
 
         self.df_times = pd.DataFrame(results)
         self.df_times[self.df_times["Assignment"] == 1].drop(
             columns=["Assignment"]
-        ).to_excel("results.xlsx")
+        ).to_excel("../results/results.xlsx")
 
-        results_df = pd.read_excel("results.xlsx")
-        plot_calendar(results_df)
+        results_df = pd.read_excel("../results/results.xlsx")
+        plot_calendar(results_df, save_fn="../results/calendar.png")
+
+        return results_df
 
     def _generate_case_durations(self) -> dict:
         """
@@ -157,9 +195,14 @@ class Scheduler:
         Returns:
             dictionary with student name as key and duration as value (mins)
         """
-        return pd.Series(
-            self.df_cases["Duration"].values, index=self.df_cases["Name"]
-        ).to_dict()
+        durations, names = [], []
+        for _, row in self.df_cases.iterrows():
+            name = row["Name"]
+            duration = row["Duration"]
+            durations.append(duration)
+            names.append(name)
+
+        return pd.Series(durations, index=names).to_dict()
 
     def _generate_session_start_times(self):
         """
@@ -278,7 +321,18 @@ class Scheduler:
                 return True
         return False
 
-    def _log_solver_output(self):
+    def _configure_logger(self):
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        ch.setFormatter(formatter)
+        self.logger.addHandler(ch)
+
+    def _print_solver_output(self):
         """Prints out the results of the solver."""
         all_cases = self.model.CASES.value_list
         cases_assigned = []
@@ -292,7 +346,6 @@ class Scheduler:
         print(f"Num. cases assigned: {len(cases_missed)} of {len(all_cases)}")
         print("Cases assigned: ", cases_assigned)
         print("Cases missed: ", cases_missed)
-        self.model.STUDENTS_IN_SESSION.pprint()
         print(
             "Total objective:"
             f" {sum(self.model.STUDENTS_IN_SESSION.get_values().values())}"

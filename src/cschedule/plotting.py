@@ -6,8 +6,10 @@ from calendar_view.core.event import Event, EventStyle, EventStyles
 from PIL import ImageFont
 from pkg_resources import resource_filename
 
+from cschedule.utils import Day
 
-def plot_calendar(results_df: pd.DataFrame):
+
+def plot_calendar(results_df: pd.DataFrame, save_fn: str | None = None):
     """Saves a calendar image to the current directory."""
     style.hour_height = 350
     style.day_width = 800
@@ -30,22 +32,20 @@ def plot_calendar(results_df: pd.DataFrame):
 
     events = []
     for _, row in results_df.iterrows():
+        day = Day[row["Day"]].value - 1
         start = row["Start"]
         end = row["End"]
 
-        day = start // 1440
-        start_time = str(pd.to_timedelta(f"{start} min")).split(" ")[2]
-        start_time = ":".join(start_time.split(":")[0:2])
-
-        end_time = str(pd.to_timedelta(f"{end} min")).split(" ")[2]
-        end_time = ":".join(end_time.split(":")[0:2])
+        s = row["Case"]
+        parts = s.split("_")
+        title = parts[0] if len(parts) > 0 else s
 
         events.append(
             dict(
-                title=row["Case"],
-                day_of_week=int(day),
-                start=start_time,
-                end=end_time,
+                title=title,
+                day_of_week=day,
+                start=start,
+                end=end,
                 style=get_style(row["Grade"]),
             )
         )
@@ -57,7 +57,11 @@ def plot_calendar(results_df: pd.DataFrame):
 
     calendar = Calendar.build(config)
     calendar.add_events(events)
-    calendar.save("calendar.png")
+
+    if save_fn:
+        calendar.save(save_fn)
+    else:
+        calendar.save("calendar.png")
 
 
 def image_font(size: int):
