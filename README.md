@@ -25,7 +25,7 @@ pip install -e .
 ```
 The -e flag denotes an editable install for development.
 
-The code will be importable using the package name `csched`.
+The code will be importable using the package name `cschedule`.
 
 ## Usage
 
