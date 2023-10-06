@@ -13,7 +13,7 @@ The problem is solved using a mixed-integer linear programming (MLIP) approach
 with the `pyomo` package, with the default HiGHS solver (installed via `highspy`).
 
 The default **objective function** maximizes the number of cases scheduled in the week, making
-this package is particularly suitable for scheduling very large caseloads.
+this package particularly suitable for scheduling very large caseloads.
 
 ## Installation
 
